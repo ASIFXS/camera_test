@@ -1,0 +1,36 @@
+# ROS2 workspace ignores
+build/
+install/
+log/
+
+# VSCode settings
+.vscode/
+*.code-workspace
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# CMake temporary files
+CMakeFiles/
+CMakeCache.txt
+*.cmake
+Makefile
+*.swp
+
+# Backup files
+*.bak
+*.tmp
+*.old
+
+# OS generated files
+.DS_Store
+*.egg-info/
+*.egg
+*.log
+
+# Ignore ROS2 source artifacts that may be temporary
+*.pyc
+*.launch.pyc
