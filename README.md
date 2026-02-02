@@ -26,7 +26,6 @@ This system isolates the data pipeline used in advanced manipulation tasks (like
 
 ```bash
 # Clone repository with realsense-ros submodule
-mkdir -p ~/camera_test_ws/src && cd ~/camera_test_ws/src
 git clone --recurse-submodules https://github.com/ASIFXS/camera_test.git
 
 # Install dependencies
@@ -111,6 +110,48 @@ pip3 install "numpy<2.0"
 ### 4. "Incompatible QoS" Warnings
 
 If you see warnings in the terminal about QoS policies, ensure you have followed the RViz configuration steps above. The launch file and Python script are hard-coded to use **Best Effort** to maximize compatibility with the hardware.
+
+
+### 5. Librealsense SDK Requirement
+
+You **must have the LibreRealSense SDK version `2.57.x` or newer** installed for this package to work correctly.
+
+If your installed version is older, please update it using the steps below.
+
+---
+
+
+### Check Your Current SDK Version
+```bash
+realsense-viewer --version
+```
+
+### Install Latest RealSense SDK from Source
+```bash
+# Clone the official librealsense repository
+git clone https://github.com/IntelRealSense/librealsense.git
+cd librealsense
+
+# Build and install
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+sudo make uninstall    # Remove old version (optional)
+sudo make && sudo make install
+sudo ldconfig
+```
+
+### Rebuild Your Workspace
+
+After updating the SDK, rebuild your workspace:
+```bash
+cd ~/camera_test_ws
+rm -rf build install log
+colcon build --symlink-install
+source install/setup.bash
+```
+
+**Official SDK Repository**: https://github.com/IntelRealSense/librealsense
+
 
 ## 📁 Package Structure
 
