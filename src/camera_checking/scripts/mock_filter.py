@@ -6,6 +6,7 @@ from cv_bridge import CvBridge
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 import cv2
 import numpy as np
+import message_filters  # <-- 1. ADD THIS IMPORT
 
 class MockFilterNode(Node):
     def __init__(self):
@@ -13,52 +14,58 @@ class MockFilterNode(Node):
         
         self.bridge = CvBridge()
         
-        # Define QoS Profile: Best Effort (matches RealSense default)
-        # This prevents the "Incompatible QoS" errors
+        # QoS Profile: Best Effort (matches RealSense default)
         self.sensor_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
             depth=5
         )
+
+        # QoS Profile: Reliable (Highly recommended for depth_image_proc inputs)
+        self.publish_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
         
-        # Publishers (Output)
+        # Publishers (Output) - Changed to Reliable
         self.depth_pub = self.create_publisher(
             Image, 
             '/filtered_depth_image', 
-            self.sensor_qos)
+            self.publish_qos)
             
         self.info_pub = self.create_publisher(
             CameraInfo, 
             '/filtered_depth_camera_info', 
-            self.sensor_qos)
+            self.publish_qos)
         
-        # Subscribers (Input)
-        self.depth_sub = self.create_subscription(
-            Image, 
+        # 2. Subscribers using message_filters
+        self.depth_sub = message_filters.Subscriber(
+            self, Image, 
             '/camera/camera/aligned_depth_to_color/image_raw', 
-            self.depth_callback, 
-            self.sensor_qos) # Must match RealSense QoS
+            qos_profile=self.sensor_qos) 
             
-        self.info_sub = self.create_subscription(
-            CameraInfo, 
+        self.info_sub = message_filters.Subscriber(
+            self, CameraInfo, 
             '/camera/camera/aligned_depth_to_color/camera_info', 
-            self.info_callback, 
-            self.sensor_qos)
+            qos_profile=self.sensor_qos)
             
-        self.latest_info = None
-        self.get_logger().info("Mock Filter Node Started with BEST_EFFORT QoS.")
+        # 3. ApproximateTimeSynchronizer connects the two subscribers
+        self.ts = message_filters.ApproximateTimeSynchronizer(
+            [self.depth_sub, self.info_sub], 
+            queue_size=10, 
+            slop=0.05) # Allows up to 50ms of jitter between messages
+        self.ts.registerCallback(self.sync_callback)
+            
+        self.get_logger().info("Mock Filter Node Started with Approximate Sync.")
 
-    def info_callback(self, msg):
-        self.latest_info = msg
-
-    def depth_callback(self, msg):
-        if self.latest_info is None:
-            return
-
+    # 4. Combine your old depth_callback and info_callback into one
+    def sync_callback(self, depth_msg, info_msg):
         try:
             # 1. Convert ROS Image to OpenCV
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="16UC1")
+            cv_image = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="16UC1")
             
             # 2. Create a Mask (Black everywhere, White square in middle)
             height, width = cv_image.shape
@@ -78,14 +85,17 @@ class MockFilterNode(Node):
             # 4. Convert back to ROS message
             filtered_msg = self.bridge.cv2_to_imgmsg(filtered_depth, encoding="16UC1")
             
-            # 5. CRITICAL: Sync Timestamps exactly
-            filtered_msg.header = msg.header
+            # 5. CRITICAL FIX: Generate ONE exact timestamp and force it on both
+            exact_stamp = self.get_clock().now().to_msg()
             
-            current_info = self.latest_info
-            current_info.header = msg.header # Sync info header too
+            filtered_msg.header.stamp = exact_stamp
+            filtered_msg.header.frame_id = depth_msg.header.frame_id
             
-            # 6. Publish
-            self.info_pub.publish(current_info)
+            info_msg.header.stamp = exact_stamp
+            info_msg.header.frame_id = depth_msg.header.frame_id 
+            
+            # 6. Publish perfectly synchronized pair
+            self.info_pub.publish(info_msg)
             self.depth_pub.publish(filtered_msg)
             
         except Exception as e:
